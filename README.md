@@ -6,6 +6,16 @@ ShelfMate answers questions **grounded in company policy documents**, looks up *
 
 This repository is the Artefact take-home submission: a working prototype plus evaluation notes and a short production note.
 
+## Live demo
+
+| | |
+| --- | --- |
+| **URL** | [http://124.223.213.17:8080/](http://124.223.213.17:8080/) |
+| **Username** | `admin` |
+| **Password** | `admin123` |
+
+Stack on the demo host: **DeepSeek `deepseek-chat`** (LLM) + **Tencent TokenHub `kinfra-text-embedding-0.6b`** (embeddings, 1024-d) + **Weaviate** (vector store).
+
 ## What this demo covers (brief requirements)
 
 | Requirement | How ShelfMate shows it |
@@ -21,7 +31,7 @@ This repository is the Artefact take-home submission: a working prototype plus e
 - Users are authenticated store associates / admins (demo login only — not SSO).
 - Policy corpus is the ten markdown files shipped in-repo (not a live CMS).
 - Orders are mocked JSON for the take-home; production would call OMS read-only APIs.
-- Default local stack uses **Ollama** for chat + embeddings; Settings also support OpenAI-compatible / Anthropic / Google chat and OpenAI-compatible embeddings (e.g. cloud providers).
+- **Default models for this submission:** DeepSeek chat + Tencent TokenHub embeddings (OpenAI-compatible `/v1/embeddings`). Settings still allow switching providers without rewriting the agent.
 - English UI; product name **ShelfMate**.
 
 ## Product flows
@@ -48,24 +58,38 @@ FastAPI host
     │                  ├ create_escalation
     │                  └ list_escalations
     ├─ RAG: chunk → embed → Weaviate (BYO vectors)
-    └─ LLM adapter (Ollama / OpenAI-compatible / Anthropic / Google)
+    └─ LLM / embedding adapters
+         ├ Chat: DeepSeek deepseek-chat (default)
+         └ Embed: Tencent TokenHub kinfra-text-embedding-0.6b (1024-d)
 ```
 
 Creative bet kept: **Escalate to Ops** — when the assistant refuses or the associate needs a human, a ticket is written with store id + transcript context.
+
+## Models used in this submission
+
+| Role | Provider | Model / endpoint |
+| --- | --- | --- |
+| Chat LLM | DeepSeek | `deepseek-chat` (`https://api.deepseek.com`) |
+| Embedding | Tencent Cloud TokenHub | `kinfra-text-embedding-0.6b` (1024 dimensions) |
+| Vector store | Weaviate 1.27 | collection `ShelfMatePolicyChunk` |
+
+Configure keys in `backend/.env` (gitignored). Placeholders only in `backend/.env.example`:
+
+```env
+DEEPSEEK_API_KEY=sk-your-deepseek-key
+TOKENHUB_API_KEY=sk-your-tokenhub-key
+```
+
+**Never commit real API keys.**
 
 ## Quick start (local)
 
 ### Prerequisites
 
-- Docker Desktop (for Weaviate; optional full compose)  
-- Node.js 20+ (frontend)  
-- Python 3.12+ (backend)  
-- [Ollama](https://ollama.com) with models below (default local path)
-
-```powershell
-ollama pull qwen3:8b
-ollama pull qwen3-embedding
-```
+- Docker Desktop (Weaviate)  
+- Node.js 20+  
+- Python 3.12+  
+- DeepSeek API key + Tencent TokenHub API key  
 
 ### 1) Weaviate
 
@@ -79,12 +103,12 @@ docker compose up -d weaviate
 
 ```powershell
 copy backend\.env.example backend\.env
-# Edit backend\.env if you use cloud LLM/embedding keys instead of Ollama
+# Fill DEEPSEEK_API_KEY and TOKENHUB_API_KEY
 powershell -ExecutionPolicy Bypass -File .\start-backend.ps1
 # http://127.0.0.1:8000
 ```
 
-Open **Settings → Vector store → Reindex policies** once embeddings are reachable.
+Open **Settings → Vector store → Reindex policies** once (or rely on auto-reindex when configured).
 
 ### 3) Frontend
 
@@ -100,39 +124,28 @@ powershell -ExecutionPolicy Bypass -File .\start-frontend.ps1
 | `admin` | `admin123` | admin |
 | `store` | `store123` | associate |
 
-### Optional: full local Docker stack (app + Weaviate + Ollama)
+### Optional: Docker app stack (Weaviate + backend + frontend, cloud models)
 
 ```powershell
-copy .env.docker.example .env
-docker compose up -d --build
+copy .env.cloud.example .env
+# Fill DEEPSEEK_API_KEY and TOKENHUB_API_KEY in .env
+docker compose -f docker-compose.cloud.yml up -d --build
 # App http://localhost:8080
 ```
-
-First boot may take several minutes while Ollama pulls models; empty collections auto-reindex when `SHELFMATE_AUTO_REINDEX=1`.
-
-### Optional: cloud chat + embedding (no local LLM)
-
-Use OpenAI-compatible endpoints via `backend/.env` (placeholders only in `.env.example`) or the Settings UI:
-
-- Chat: e.g. DeepSeek `deepseek-chat`  
-- Embedding: any OpenAI-compatible `/v1/embeddings` model (dimension must match reindex)
-
-Then reindex after changing embedding model/dimensions.
-
-**Never commit real API keys.** Keep them in `backend/.env` (gitignored) or paste once in Settings.
 
 ## Try these prompts
 
 | Prompt | Expected behavior |
 | --- | --- |
 | “What is the return window for opened electronics?” | `search_policies` → cite electronics policy (15 days) |
+| “Can we price match a local competitor flyer?” | `search_policies` → price-match policy |
 | “Where is order ORD-10042?” | `get_order_status` → live-ish mock status |
 | “What is the CEO’s personal mobile number?” | Refuse (out-of-scope gate) |
 | After a refuse: Escalate to Ops | Creates a ticket visible in the workspace panel |
 
 ## Evaluation
 
-Latest recorded run: **4/4** on the golden set — see [`EVAL_RESULTS.md`](EVAL_RESULTS.md).
+Latest recorded golden-set run: **4/4** — see [`EVAL_RESULTS.md`](EVAL_RESULTS.md).
 
 ```powershell
 cd backend
@@ -145,9 +158,10 @@ Cases cover: policy retrieval, order tool, refuse, price-match grounding.
 
 1. **MCP as the tool boundary** — retrieval and OMS are not hidden side effects; the model must call tools, and the UI shows tool traces.  
 2. **Weaviate + BYO vectors** — controllable RAG with similarity → confidence labels for associates.  
-3. **Refuse in code, not only in the prompt** — out-of-scope regex gate + “empty search / ungrounded answer” rewrite so demos stay stable.  
-4. **Escalate to Ops** — product-shaped creativity: refuse is not a dead end; associates get a human path with context.  
-5. **Settings-first multi-provider LLM/embedding** — prototype stays local-first (Ollama) but can switch to customer cloud endpoints without rewriting the agent.
+3. **Cloud LLM + cloud embeddings for the demo** — DeepSeek for tool-capable chat; TokenHub `kinfra-text-embedding-0.6b` for cheap, fast 1024-d retrieval without hosting a local model.  
+4. **Refuse in code, not only in the prompt** — out-of-scope regex gate + “empty search / ungrounded answer” rewrite so demos stay stable.  
+5. **Escalate to Ops** — product-shaped creativity: refuse is not a dead end; associates get a human path with context.  
+6. **Settings-first multi-provider adapters** — switch chat/embedding endpoints without rewriting the orchestrator.
 
 ## With more time
 
@@ -164,13 +178,14 @@ shelfmate/
   README.md
   PRODUCTION_NOTE.md
   EVAL_RESULTS.md
-  docker-compose.yml          # Weaviate (+ optional full Ollama stack)
-  docs/policies/              # NovaMart policy corpus
-  backend/app/agent/          # Orchestrator + LLM + MCP host
-  backend/app/rag/            # Chunk / embed / Weaviate
-  backend/app/mcp_server/     # MCP tools
+  docker-compose.yml            # Weaviate (local)
+  docker-compose.cloud.yml      # App + Weaviate using cloud LLM/embedding
+  docs/policies/                # NovaMart policy corpus
+  backend/app/agent/            # Orchestrator + LLM + MCP host
+  backend/app/rag/              # Chunk / embed / Weaviate
+  backend/app/mcp_server/       # MCP tools
   backend/scripts/run_eval.py
-  frontend/src/pages/         # Landing, Login, Chat, Knowledge, Settings
+  frontend/src/pages/           # Landing, Login, Chat, Knowledge, Settings
 ```
 
 ## Production note
