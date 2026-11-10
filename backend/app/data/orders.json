@@ -1,0 +1,57 @@
+[
+  {
+    "order_id": "ORD-10042",
+    "customer": "A. Chen",
+    "store_id": "NM-204",
+    "status": "out_for_delivery",
+    "items": [
+      {"sku": "EL-TV-55", "name": "55\" LED TV", "qty": 1},
+      {"sku": "ACC-HDMI", "name": "HDMI Cable 2m", "qty": 2}
+    ],
+    "placed_at": "2026-03-08T14:22:00Z",
+    "eta": "2026-03-10T18:00:00Z",
+    "carrier": "NovaShip",
+    "tracking": "NS98234110"
+  },
+  {
+    "order_id": "ORD-10087",
+    "customer": "M. Patel",
+    "store_id": "NM-118",
+    "status": "processing",
+    "items": [
+      {"sku": "AP-HOOD-M", "name": "Winter Hoodie M", "qty": 1}
+    ],
+    "placed_at": "2026-03-09T09:05:00Z",
+    "eta": "2026-03-12T17:00:00Z",
+    "carrier": null,
+    "tracking": null
+  },
+  {
+    "order_id": "ORD-10105",
+    "customer": "J. Lopez",
+    "store_id": "NM-204",
+    "status": "delivered",
+    "items": [
+      {"sku": "HM-BLEND", "name": "Countertop Blender", "qty": 1}
+    ],
+    "placed_at": "2026-03-01T11:40:00Z",
+    "eta": "2026-03-04T16:00:00Z",
+    "delivered_at": "2026-03-04T15:12:00Z",
+    "carrier": "NovaShip",
+    "tracking": "NS98110022"
+  },
+  {
+    "order_id": "ORD-10133",
+    "customer": "S. Kim",
+    "store_id": "NM-055",
+    "status": "cancelled",
+    "items": [
+      {"sku": "TY-RC-CAR", "name": "Remote Control Car", "qty": 1}
+    ],
+    "placed_at": "2026-03-07T19:30:00Z",
+    "eta": null,
+    "cancel_reason": "Customer requested cancel before ship",
+    "carrier": null,
+    "tracking": null
+  }
+]

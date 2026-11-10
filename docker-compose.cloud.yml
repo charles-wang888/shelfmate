@@ -1,0 +1,85 @@
+# Cloud-model demo stack (no local Ollama):
+# DeepSeek chat + Tencent TokenHub embedding + Weaviate + frontend
+#
+#   cp .env.cloud.example .env
+#   docker compose -f docker-compose.cloud.yml up -d --build
+#   open http://SERVER_IP:8080
+
+services:
+  weaviate:
+    image: semitechnologies/weaviate:1.27.0
+    container_name: shelfmate-weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEY:-shelfmate-dev-key}
+      AUTHENTICATION_APIKEY_USERS: "admin"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      CLUSTER_HOSTNAME: "node1"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+    volumes:
+      - shelfmate_weaviate_data:/var/lib/weaviate
+    ports:
+      - "${WEAVIATE_HTTP_PORT:-8088}:8080"
+      - "${WEAVIATE_GRPC_PORT:-50058}:50051"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: shelfmate-backend
+    depends_on:
+      weaviate:
+        condition: service_healthy
+    environment:
+      SHELFMATE_DOCKER: "1"
+      SHELFMATE_USE_CLOUD_MODELS: "1"
+      SHELFMATE_AUTO_REINDEX: ${SHELFMATE_AUTO_REINDEX:-1}
+      WAIT_FOR_WEAVIATE: "1"
+      POLICIES_DIR: /app/docs/policies
+      STORAGE_DIR: /app/storage
+      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-shelfmate-dev-key}
+      LLM_PROVIDER: deepseek
+      LLM_MODEL: deepseek-chat
+      LLM_BASE_URL: https://api.deepseek.com
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      EMBEDDING_PROVIDER: openai
+      SEMANTIC_EMBEDDING_BASE_URL: https://tokenhub.tencentmaas.com/v1
+      SEMANTIC_EMBEDDING_MODEL: kinfra-text-embedding-0.6b
+      SEMANTIC_EMBEDDING_DIMENSIONS: "1024"
+      TOKENHUB_API_KEY: ${TOKENHUB_API_KEY}
+      AUTH_SECRET: ${AUTH_SECRET:-shelfmate-dev-secret-change-me}
+    volumes:
+      - shelfmate_storage:/app/storage
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      # Use prebuilt dist (built locally) to avoid npm registry timeouts on CVM.
+      dockerfile: frontend/Dockerfile.prebuilt
+    container_name: shelfmate-frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  shelfmate_weaviate_data:
+  shelfmate_storage:

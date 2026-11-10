@@ -1,0 +1,14 @@
+[
+  {
+    "username": "admin",
+    "password": "admin123",
+    "role": "admin",
+    "display_name": "NovaMart Admin"
+  },
+  {
+    "username": "store",
+    "password": "store123",
+    "role": "associate",
+    "display_name": "Store Associate"
+  }
+]

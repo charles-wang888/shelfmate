@@ -1,0 +1,14 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.git
+**/*.log
+backend/storage/escalations/*.json
+backend/.env
+frontend/dev*.log
+frontend/_*.log
+**/.DS_Store
+**/Thumbs.db
+# Keep frontend/dist for Dockerfile.prebuilt (cloud deploy).

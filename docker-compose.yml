@@ -1,0 +1,133 @@
+# Full ShelfMate demo stack: frontend + backend + Weaviate + Ollama
+#
+#   docker compose up -d --build
+#   open http://SERVER_IP:8080
+#
+# First boot pulls LLM/embedding models (can take several minutes) and
+# auto-reindexes policies into Weaviate when the collection is empty.
+
+services:
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.27.0
+    container_name: shelfmate-weaviate
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEY:-shelfmate-dev-key}
+      AUTHENTICATION_APIKEY_USERS: "admin"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      CLUSTER_HOSTNAME: "node1"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+    volumes:
+      - shelfmate_weaviate_data:/var/lib/weaviate
+    # Optional host mapping for debugging; app uses the internal network.
+    ports:
+      - "${WEAVIATE_HTTP_PORT:-8088}:8080"
+      - "${WEAVIATE_GRPC_PORT:-50058}:50051"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: shelfmate-ollama
+    volumes:
+      - shelfmate_ollama_data:/root/.ollama
+    # Uncomment for NVIDIA GPU servers:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: shelfmate-ollama-init
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "Waiting for Ollama..."
+        i=0
+        until ollama list >/dev/null 2>&1; do
+          i=$$((i+1))
+          if [ "$$i" -ge 60 ]; then
+            echo "Ollama not ready"; exit 1
+          fi
+          sleep 2
+        done
+        echo "Pulling chat model: $${OLLAMA_MODEL:-qwen3:8b}"
+        ollama pull "$${OLLAMA_MODEL:-qwen3:8b}"
+        echo "Pulling embedding model: $${OLLAMA_EMBED_MODEL:-qwen3-embedding}"
+        ollama pull "$${OLLAMA_EMBED_MODEL:-qwen3-embedding}"
+        echo "Ollama models ready."
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: shelfmate-backend
+    depends_on:
+      weaviate:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      SHELFMATE_DOCKER: "1"
+      SHELFMATE_AUTO_REINDEX: ${SHELFMATE_AUTO_REINDEX:-1}
+      WAIT_FOR_WEAVIATE: "1"
+      POLICIES_DIR: /app/docs/policies
+      STORAGE_DIR: /app/storage
+      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_API_KEY: ${WEAVIATE_API_KEY:-shelfmate-dev-key}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-qwen3-embedding}
+      AUTH_SECRET: ${AUTH_SECRET:-shelfmate-dev-secret-change-me}
+    volumes:
+      - shelfmate_storage:/app/storage
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: shelfmate-frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  shelfmate_weaviate_data:
+  shelfmate_ollama_data:
+  shelfmate_storage:
